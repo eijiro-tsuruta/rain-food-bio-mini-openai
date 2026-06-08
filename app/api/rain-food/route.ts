@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 export const runtime = "nodejs";
 
@@ -88,6 +90,58 @@ type ChatMessage = {
   content: string;
 };
 
+const knowledgeFiles = {
+  core: "core-rules.md",
+  nutrition: "nutrition.md",
+  health: "health.md",
+  evidence: "evidence.md",
+  calc: "calc-rules.md",
+  foodEvaluation: "food-evaluation.md"
+} as const;
+
+type KnowledgeKey = keyof typeof knowledgeFiles;
+
+function readKnowledgeFile(key: KnowledgeKey): string {
+  try {
+    return readFileSync(join(process.cwd(), "knowledge", knowledgeFiles[key]), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function selectKnowledge(messages: ChatMessage[]): KnowledgeKey[] {
+  const text = messages.map(message => message.content).join("\n");
+  const selected = new Set<KnowledgeKey>(["core", "evidence"]);
+
+  if (/手作り|レシピ|給与量|給餌|RER|DER|Ca:?P|カルシウム|リン|卵殻|内臓|発酵野菜|食材/.test(text)) {
+    selected.add("nutrition");
+    selected.add("calc");
+  }
+
+  if (/原材料|保証成分|ドッグフード|フード評価|総合栄養食|粗タンパク|粗脂肪|代謝エネルギー|ME|加水分解|HVP|豆|エンドウ|レンズ|グルテン|プロテイン/.test(text)) {
+    selected.add("foodEvaluation");
+    selected.add("nutrition");
+  }
+
+  if (/体調|健康|症状|軟便|下痢|嘔吐|皮膚|痒|腎|肝|膵|アレルギー|シニア|病気|投薬|尿|便/.test(text)) {
+    selected.add("health");
+    selected.add("evidence");
+  }
+
+  return Array.from(selected);
+}
+
+function buildInstructions(messages: ChatMessage[]): string {
+  const selectedKnowledge = selectKnowledge(messages)
+    .map(key => readKnowledgeFile(key))
+    .filter(Boolean)
+    .map(content => `---\n${content}`)
+    .join("\n\n");
+
+  if (!selectedKnowledge) return systemPrompt;
+  return `${systemPrompt}\n\n# Selected Markdown Knowledge\n${selectedKnowledge}`;
+}
+
 function extractResponseText(data: unknown): string {
   if (!data || typeof data !== "object") return "";
   const response = data as { output_text?: unknown; output?: unknown };
@@ -160,7 +214,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model,
-        instructions: systemPrompt,
+        instructions: buildInstructions(messages),
         input: messages,
         max_output_tokens: 3000
       }),
