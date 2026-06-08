@@ -36,23 +36,20 @@ const seedRecipe: RecipeItem[] = [
 
 const modelOptions = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"];
 const processingMethods = ["生", "蒸す", "ボイル", "発酵", "そのまま"];
-const secondBrainTags = [
-  "#Nutrition:Chicken",
-  "#Nutrition:ChickenLiver",
-  "#Nutrition:Pumpkin",
-  "#Nutrition:FermentedVeg",
-  "#Health:StemCell",
-  "#Knowledge:CalcRules",
-  "#Knowledge:Evidence",
-  "#Knowledge:CommRules"
+const chatChips = [
+  "ドッグフード原材料を評価して",
+  "植物性タンパク質の注意点は？",
+  "豆類が多いフードのリスクは？",
+  "腎臓ケアフードの選び方",
+  "加水分解タンパクとは？",
+  "手作り食のCa:P比について"
 ];
-const quickPrompts = [
-  { label: "🍖 フード分析", text: "このフードの原材料と保証成分を、犬の栄養設計として評価してください。" },
-  { label: "🩺 体調相談", text: "犬の体調について、栄養・生活管理の観点から確認すべき点を整理してください。" },
-  { label: "🧠 行動相談", text: "犬の行動について、体調・環境・栄養面も含めて原因候補を整理してください。" },
-  { label: "🐾 シニアケア", text: "シニア犬の食事と生活管理について、注意点を整理してください。" },
-  { label: "🔬 再生医療", text: "犬の再生医療について、期待できることと限界、確認すべき点を整理してください。" }
-];
+const tabs = [
+  { id: "chat", label: "💬 相談チャット" },
+  { id: "homemade", label: "🥩 手作り食計算" },
+  { id: "eval", label: "🔍 原材料評価" }
+] as const;
+type ActiveTab = typeof tabs[number]["id"];
 
 function round(n: number, d = 2) {
   return Number.isFinite(n) ? Number(n.toFixed(d)).toString() : "計算不可";
@@ -121,8 +118,10 @@ function createRecipeText(recipe: RecipeItem[], weight: number, factor: number, 
 export default function Page() {
   const ingredientGroups = useMemo(buildIngredientGroups, []);
   const firstIngredient = Object.keys(ingredients)[0];
+  const [activeTab, setActiveTab] = useState<ActiveTab>("chat");
   const [model, setModel] = useState(modelOptions[0]);
   const [dogWeight, setDogWeight] = useState("14");
+  const [dogAge, setDogAge] = useState("3");
   const [activityFactor, setActivityFactor] = useState("1.6");
   const [purpose, setPurpose] = useState("維持");
   const [ingredientName, setIngredientName] = useState(firstIngredient);
@@ -131,14 +130,43 @@ export default function Page() {
   const [recipe, setRecipe] = useState<RecipeItem[]>(seedRecipe);
   const [recipeResult, setRecipeResult] = useState(() => createRecipeText(seedRecipe, 14, 1.6, "維持").text);
   const [lastRecipeText, setLastRecipeText] = useState(recipeResult);
-  const [recipeOpen, setRecipeOpen] = useState(true);
   const [userInput, setUserInput] = useState("この手作り食レシピを犬に与える前提で評価してください。");
+  const [evalInput, setEvalInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
+  const [meatCook, setMeatCook] = useState("ボイル");
+  const [vegCook, setVegCook] = useState("発酵");
   const activeRequestId = useRef(0);
 
+  function methodForIngredient(name: string) {
+    const cat = ingredients[name].cat;
+    if (cat === "肉類" || cat === "内臓") return meatCook;
+    if (cat === "野菜") return vegCook;
+    return "そのまま";
+  }
+
+  function updateRecipeItem(name: string, patch: Partial<RecipeItem>) {
+    setRecipe(current => current.map(item => item.name === name ? { ...item, ...patch } : item));
+    setLastRecipeText("");
+  }
+
+  function toggleRecipeIngredient(name: string) {
+    setRecipe(current => {
+      const exists = current.some(item => item.name === name);
+      if (exists) return current.filter(item => item.name !== name);
+      return [...current, { name, grams: 100, method: methodForIngredient(name) }];
+    });
+    setLastRecipeText("");
+  }
+
+  function selectedItem(name: string) {
+    return recipe.find(item => item.name === name);
+  }
+
   function calculateCurrentRecipe() {
-    const result = createRecipeText(recipe, Number(dogWeight), Number(activityFactor), purpose);
+    const recipeForCalculation = recipe.map(item => ({ ...item, method: methodForIngredient(item.name) }));
+    const result = createRecipeText(recipeForCalculation, Number(dogWeight), Number(activityFactor), purpose);
     setRecipeResult(result.text);
     setLastRecipeText(result.ok ? result.text : "");
     return result;
@@ -159,14 +187,47 @@ export default function Page() {
     setLastRecipeText("");
   }
 
+  function activityLabel() {
+    if (activityFactor === "1.2") return "低め";
+    if (activityFactor === "2.0" || activityFactor === "3.0") return "高め";
+    return "普通";
+  }
+
+  function makeHomemadePrompt(resultText: string) {
+    return `以下の手作り食の計算値を評価してください。AIは再計算せず、この数値をそのまま使って評価してください。
+
+【犬の情報】
+- 体重: ${dogWeight}kg
+- 年齢: ${dogAge || "不明"}歳
+- 活動レベル: ${activityLabel()}
+- 目的: ${purpose}
+
+【調理方針】
+- 肉・内臓: ${meatCook}
+- 野菜: ${vegCook}
+
+${resultText}
+
+このバランスを評価し、改善点があれば承認食材リスト内で具体的に提案してください。
+給与量については「ドライフードと同じ重量からスタートして徐々に調整する」前提で、実践しやすい順番でアドバイスしてください。`;
+  }
+
+  async function calculateAndAskAi() {
+    const result = calculateCurrentRecipe();
+    if (!result.ok) return;
+    setActiveTab("chat");
+    await sendMessage(makeHomemadePrompt(result.text));
+  }
+
   function insertRecipeIntoPrompt() {
     const result = lastRecipeText ? { ok: true, text: lastRecipeText } : calculateCurrentRecipe();
     if (!result.ok) return;
     setUserInput(current => `${current.trim() ? current.trim() + "\n\n" : ""}${result.text}`);
+    setActiveTab("chat");
   }
 
-  async function sendMessage() {
-    const content = userInput.trim();
+  async function sendMessage(overrideText?: string) {
+    const content = (overrideText ?? userInput).trim();
     if (isSending) return;
     if (!content) {
       alert("相談内容を入力してください。");
@@ -213,6 +274,17 @@ export default function Page() {
     if (confirm("会話履歴をクリアしますか？")) {
       activeRequestId.current++;
       setMessages([]);
+      setSaveStatus("");
+    }
+  }
+
+  function saveConversation() {
+    try {
+      localStorage.setItem("rain_food_bio_mini_history", JSON.stringify(messages));
+      setSaveStatus("✓ 保存しました " + new Date().toLocaleTimeString("ja-JP"));
+      window.setTimeout(() => setSaveStatus(""), 3000);
+    } catch {
+      alert("保存に失敗しました");
     }
   }
 
@@ -232,164 +304,257 @@ export default function Page() {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  async function evalIngredients() {
+    const input = evalInput.trim();
+    if (!input) {
+      alert("原材料を入力してください");
+      return;
+    }
+    const prompt = `以下のドッグフードの原材料を詳しく評価してください。
+
+${input}
+
+以下の観点で評価してください：
+1. 動物性タンパク質の質と原材料順位
+2. 植物性タンパク質・豆類の確認と注意点
+3. 油脂の種類と質
+4. 総合評価（★1〜5）
+5. 推奨する犬・注意が必要な犬
+6. 改善点または代替フードの方向性
+
+情報不足があっても、まず暫定評価と実践的な見方を出してください。追加確認事項だけで終えないでください。`;
+    setActiveTab("chat");
+    await sendMessage(prompt);
+  }
+
   return (
-    <div className="app-shell">
-      <header className="rain-header">
-        <div className="brand-lockup">
-          <img className="brand-logo" src="/rain-bio-logo.png" alt="R.A.I.N.BIO logo" />
-          <div>
-            <h1>R.A.I.N.BIO</h1>
-            <p>Canine Life Consultant · Life before profit</p>
-          </div>
+    <div className="app">
+      <header className="header">
+        <img className="header-logo-img" src="/rain-bio-logo.png" alt="Rain Bio" />
+        <div className="header-info">
+          <div className="header-title">Food専科 BIO mini</div>
+          <div className="header-sub">DOG FOOD EVALUATION AI · OpenAI/Vercel</div>
         </div>
-        <span className="status-dot" aria-label="online" />
+        <div className="model-select">
+          <select value={model} onChange={event => setModel(event.target.value)} aria-label="Model">
+            {modelOptions.map(option => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+        <div className="status-dot" />
       </header>
 
-      <nav className="second-brain" aria-label="Second Brain tags">
-        <span className="second-brain-label">Second Brain:</span>
-        {secondBrainTags.map(tag => <span className="brain-tag" key={tag}>{tag}</span>)}
+      <nav className="tab-bar" aria-label="Main tabs">
+        {tabs.map(tab => (
+          <button
+            className={`tab-btn${activeTab === tab.id ? " active" : ""}`}
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </nav>
 
-      <main className="rain-main">
-        <section className="recipe-panel">
-          <div className="collapsible-head">
-            <div>
-              <h2>かんたん手作り食チェック</h2>
-              <p className="sub">CaやPを直接入力せず、食材と重量から概算します。</p>
+      <main className="main-content">
+        {activeTab === "chat" && (
+          <section className="chat-view">
+            <div className="messages">
+              {messages.length === 0 ? (
+                <div className="msg-row">
+                  <div className="avatar ai-av">🐾</div>
+                  <div className="bubble ai-bubble">
+                    <h2>Food専科 BIO mini へようこそ！</h2>
+                    <p>ドッグフードの評価・手作り食サポートに特化したAIです。</p>
+                    <ul>
+                      <li>🔬 ドッグフードの原材料・成分評価</li>
+                      <li>🥩 タンパク質の種類の詳細分析</li>
+                      <li>🧮 手作り食の栄養計算とAI評価</li>
+                      <li>💡 フード選びの実践的なアドバイス</li>
+                    </ul>
+                    <p>気になるフードの原材料を教えてください。「原材料評価」タブも便利です。</p>
+                  </div>
+                </div>
+              ) : messages.map((message, index) => (
+                <div className={`msg-row${message.role === "user" ? " user" : ""}`} key={index}>
+                  <div className={`avatar ${message.role === "user" ? "user-av" : "ai-av"}`}>
+                    {message.role === "user" ? "👤" : "🐾"}
+                  </div>
+                  <div className={`bubble ${message.role === "user" ? "user-bubble" : "ai-bubble"}`}>
+                    {message.content}
+                  </div>
+                </div>
+              ))}
+              {isSending && (
+                <div className="msg-row">
+                  <div className="avatar ai-av">🐾</div>
+                  <div className="bubble ai-bubble">
+                    <div className="typing-dots"><span /><span /><span /></div>
+                  </div>
+                </div>
+              )}
             </div>
-            <button
-              className="collapse-toggle"
-              type="button"
-              aria-expanded={recipeOpen}
-              onClick={() => setRecipeOpen(open => !open)}
-            >
-              {recipeOpen ? "閉じる" : "開く"}
-            </button>
-          </div>
-          <div className={`collapsible-body${recipeOpen ? "" : " collapsed"}`}>
-            <div className="row3">
-              <div>
-                <label>犬の体重 kg</label>
-                <input type="number" step="0.1" min="0.1" value={dogWeight} onChange={event => setDogWeight(event.target.value)} />
-              </div>
-              <div>
-                <label>活動係数</label>
-                <select value={activityFactor} onChange={event => setActivityFactor(event.target.value)}>
-                  <option value="1.2">減量・低活動 1.2</option>
-                  <option value="1.4">避妊去勢済み成犬 1.4</option>
-                  <option value="1.6">通常成犬 1.6</option>
-                  <option value="2.0">活動犬 2.0</option>
-                  <option value="3.0">高活動・競技犬 3.0</option>
-                </select>
-              </div>
-              <div>
-                <label>目的</label>
-                <select value={purpose} onChange={event => setPurpose(event.target.value)}>
-                  <option value="維持">維持</option>
-                  <option value="減量">減量</option>
-                  <option value="体重増加">体重増加</option>
-                  <option value="便改善">便改善</option>
-                  <option value="競技・活動犬">競技・活動犬</option>
-                </select>
-              </div>
-            </div>
-            <h3>食材を追加</h3>
-            <div className="row4">
-              <div>
-                <label>食材</label>
-                <select value={ingredientName} onChange={event => setIngredientName(event.target.value)}>
-                  {Object.entries(ingredientGroups).map(([cat, names]) => (
-                    <optgroup key={cat} label={cat}>
-                      {names.map(name => <option key={name} value={name}>{name}（{ingredients[name].cat}）</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label>重量 g</label>
-                <input type="number" step="0.1" value={ingredientGram} onChange={event => setIngredientGram(event.target.value)} />
-              </div>
-              <div>
-                <label>加工方法</label>
-                <select value={processingMethod} onChange={event => setProcessingMethod(event.target.value)}>
-                  {processingMethods.map(method => <option key={method} value={method}>{method}</option>)}
-                </select>
-              </div>
-              <div><button className="soft" type="button" onClick={addIngredient}>追加</button></div>
-            </div>
-            <div className="recipe-tags">
-              {recipe.map((item, index) => <span className="pill" key={`${item.name}-${index}`}>{item.name} {item.grams}g</span>)}
-            </div>
-            <table>
-              <thead><tr><th>食材</th><th>分類</th><th>重量</th><th>加工</th><th>削除</th></tr></thead>
-              <tbody>
-                {recipe.map((item, index) => (
-                  <tr key={`${item.name}-${index}`}>
-                    <td>{item.name}</td>
-                    <td>{ingredients[item.name].cat}</td>
-                    <td>{item.grams}g</td>
-                    <td>{item.method}</td>
-                    <td><button className="danger table-action" type="button" onClick={() => removeIngredient(index)}>削除</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="recipe-actions">
-              <button className="green" type="button" onClick={calculateCurrentRecipe}>レシピを計算する</button>
-              <button className="secondary" type="button" onClick={insertRecipeIntoPrompt}>計算結果を相談文へ入れる</button>
-            </div>
-            <div className="result-box">{recipeResult}</div>
-          </div>
-        </section>
+          </section>
+        )}
 
-        <section className="conversation-panel" aria-label="Rain Food専科 conversation">
-          <div className="chat">
-            {messages.length === 0 ? (
-              <div className="welcome-note">
-                <h2>Rain&apos;s words</h2>
-                <p>Numbers reveal what eyes cannot see. Tell me what you seek, and I will find it.</p>
-                <p className="small">レシピ計算、フード分析、体調相談を下の入力欄から始められます。</p>
+        {activeTab === "homemade" && (
+          <section className="homemade-view">
+            <div className="card">
+              <div className="card-title">🐕 犬の基本情報</div>
+              <div className="amount-row">
+                <div className="amount-label">体重</div>
+                <input className="amount-input" type="number" min="0.1" step="0.1" value={dogWeight} onChange={event => setDogWeight(event.target.value)} />
+                <div className="amount-unit">kg</div>
               </div>
-            ) : messages.map((message, index) => (
-              <div className={`msg ${message.role === "user" ? "user" : "assistant"}`} key={index}>
-                {(message.role === "user" ? "あなた:\n" : "Rain Food専科:\n") + message.content}
+              <div className="amount-row">
+                <div className="amount-label">年齢</div>
+                <input className="amount-input" type="number" min="0" max="25" value={dogAge} onChange={event => setDogAge(event.target.value)} />
+                <div className="amount-unit">歳</div>
               </div>
-            ))}
-          </div>
-        </section>
+              <div className="cooking-group">
+                <div className="cooking-label">活動レベル</div>
+                <div className="cooking-options">
+                  {[
+                    ["1.2", "低め"],
+                    ["1.6", "普通"],
+                    ["2.0", "高め"]
+                  ].map(([value, label]) => (
+                    <button className={`radio-btn${activityFactor === value ? " active" : ""}`} type="button" key={value} onClick={() => setActivityFactor(value)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="cooking-group">
+                <div className="cooking-label">目的</div>
+                <div className="cooking-options">
+                  {["維持","減量","体重増加","便改善","競技・活動犬"].map(value => (
+                    <button className={`radio-btn${purpose === value ? " active" : ""}`} type="button" key={value} onClick={() => setPurpose(value)}>
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-title">🥩 食材を選ぶ（グラム数を入力）</div>
+              {Object.entries(ingredientGroups).map(([cat, names]) => (
+                <div key={cat}>
+                  <div className="section-label">{cat}</div>
+                  <div className="ingredient-grid">
+                    {names.map(name => {
+                      const item = selectedItem(name);
+                      return (
+                        <div
+                          className={`ingredient-item${item ? " selected" : ""}`}
+                          key={name}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => toggleRecipeIngredient(name)}
+                          onKeyDown={event => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              toggleRecipeIngredient(name);
+                            }
+                          }}
+                        >
+                          <span className="ingredient-check">✓</span>
+                          <span className="ingredient-label">{name}</span>
+                          {item && (
+                            <span className="gram-input-wrap" onClick={event => event.stopPropagation()}>
+                              <input className="gram-input" type="number" min="1" step="5" value={item.grams} onChange={event => updateRecipeItem(name, { grams: Number(event.target.value) || 0 })} />
+                              <span className="gram-unit">g</span>
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="card">
+              <div className="card-title">🍳 調理方法</div>
+              <div className="cooking-group">
+                <div className="cooking-label">肉・内臓の調理</div>
+                <div className="cooking-options">
+                  {["生","蒸す","ボイル"].map(value => (
+                    <button className={`radio-btn${meatCook === value ? " active" : ""}`} type="button" key={value} onClick={() => setMeatCook(value)}>
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="cooking-group">
+                <div className="cooking-label">野菜の調理</div>
+                <div className="cooking-options">
+                  {["発酵","蒸す","ボイル","生"].map(value => (
+                    <button className={`radio-btn${vegCook === value ? " active" : ""}`} type="button" key={value} onClick={() => setVegCook(value)}>
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button className="calc-btn" type="button" onClick={calculateAndAskAi}>🧮 栄養を計算してAIに評価してもらう</button>
+              <button className="calc-sub-btn" type="button" onClick={insertRecipeIntoPrompt}>計算結果だけ相談欄へ入れる</button>
+              <div className="result-box">{recipeResult}</div>
+            </div>
+          </section>
+        )}
+
+        {activeTab === "eval" && (
+          <section className="eval-view">
+            <div className="card">
+              <div className="card-title">🔬 ドッグフード原材料評価</div>
+              <div className="hint-box">
+                <strong>入力のヒント：</strong>パッケージの「原材料名」欄の内容をそのまま貼り付けてください。
+                保証成分（タンパク質○%など）も一緒に入力するとより詳しく評価できます。
+              </div>
+              <textarea
+                className="eval-textarea"
+                value={evalInput}
+                onChange={event => setEvalInput(event.target.value)}
+                placeholder={"例：鶏肉、エンドウ豆タンパク、玄米、サーモン、鶏脂、エンドウ豆デンプン、乾燥ビート果肉...\n\n保証成分：粗タンパク質 26%以上、粗脂肪 14%以上、粗繊維 5%以下、水分 10%以下"}
+              />
+              <button className="eval-btn" type="button" onClick={evalIngredients}>🔍 原材料を評価する</button>
+            </div>
+          </section>
+        )}
       </main>
 
-      <footer className="composer-bar">
-        <div className="utility-actions">
-          <button className="ghost" type="button" onClick={downloadLog}>💾 保存</button>
-          <button className="ghost primary-ghost" type="button" onClick={downloadLog}>📥 TXTエクスポート</button>
-          <button className="ghost" type="button" disabled={isSending} onClick={clearChat}>🗑 クリア</button>
-          <div className="model-control">
-            <label>Model</label>
-            <select value={model} onChange={event => setModel(event.target.value)}>
-              {modelOptions.map(option => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="quick-actions">
-          {quickPrompts.map(prompt => (
-            <button className="quick-chip" type="button" key={prompt.label} onClick={() => setUserInput(prompt.text)}>
-              {prompt.label}
+      <footer className="input-area">
+        <div className="chips">
+          {chatChips.map(chip => (
+            <button className="chip" type="button" key={chip} onClick={() => { setActiveTab("chat"); void sendMessage(chip); }}>
+              {chip}
             </button>
           ))}
         </div>
+        <div className="action-row">
+          <button className="btn-action" type="button" onClick={saveConversation}>💾 保存</button>
+          <button className="btn-action" type="button" onClick={downloadLog}>📤 エクスポート</button>
+          <button className="btn-action danger" type="button" disabled={isSending} onClick={clearChat}>🗑 クリア</button>
+          <span className="save-status">{saveStatus}</span>
+        </div>
         <div className="input-row">
-          <button className="attach-button" type="button" aria-label="添付">📎</button>
           <textarea
             value={userInput}
-            placeholder="犬種・年齢・体重・ご相談内容を入力..."
+            placeholder="ドッグフードについて質問してください..."
+            rows={1}
             onChange={event => setUserInput(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void sendMessage();
+              }
+            }}
           />
-          <button className="send-button" type="button" disabled={isSending} onClick={sendMessage}>
-            {isSending ? "…" : "▶"}
+          <button className="send-btn" type="button" disabled={isSending} onClick={() => void sendMessage()}>
+            {isSending ? "…" : "➤"}
           </button>
         </div>
-        <p className="composer-note">OpenAI APIキーはブラウザには表示・保存されません。Vercel/ローカル環境の OPENAI_API_KEY をサーバー側API Routeだけが使用します。</p>
       </footer>
     </div>
   );
