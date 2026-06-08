@@ -36,6 +36,23 @@ const seedRecipe: RecipeItem[] = [
 
 const modelOptions = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"];
 const processingMethods = ["生", "蒸す", "ボイル", "発酵", "そのまま"];
+const secondBrainTags = [
+  "#Nutrition:Chicken",
+  "#Nutrition:ChickenLiver",
+  "#Nutrition:Pumpkin",
+  "#Nutrition:FermentedVeg",
+  "#Health:StemCell",
+  "#Knowledge:CalcRules",
+  "#Knowledge:Evidence",
+  "#Knowledge:CommRules"
+];
+const quickPrompts = [
+  { label: "🍖 フード分析", text: "このフードの原材料と保証成分を、犬の栄養設計として評価してください。" },
+  { label: "🩺 体調相談", text: "犬の体調について、栄養・生活管理の観点から確認すべき点を整理してください。" },
+  { label: "🧠 行動相談", text: "犬の行動について、体調・環境・栄養面も含めて原因候補を整理してください。" },
+  { label: "🐾 シニアケア", text: "シニア犬の食事と生活管理について、注意点を整理してください。" },
+  { label: "🔬 再生医療", text: "犬の再生医療について、期待できることと限界、確認すべき点を整理してください。" }
+];
 
 function round(n: number, d = 2) {
   return Number.isFinite(n) ? Number(n.toFixed(d)).toString() : "計算不可";
@@ -216,140 +233,164 @@ export default function Page() {
   }
 
   return (
-    <>
-      <div className="brand">
-        <div className="logo">🌧</div>
-        <div>
-          <h1>Rain Food専科 BIO mini v4.2</h1>
-          <p className="sub">初心者向けレシピビルダー：食材選択 → 概算計算 → BIO評価</p>
-        </div>
-      </div>
-
-      <div className="card">
-        <p className="warning">
-          注意：OpenAI APIキーはブラウザには表示・保存されません。Vercelまたはローカル環境の環境変数 OPENAI_API_KEY に設定されたキーを、サーバー側API Routeだけが使用します。
-        </p>
-        <div className="row">
+    <div className="app-shell">
+      <header className="rain-header">
+        <div className="brand-lockup">
+          <img className="brand-logo" src="/rain-bio-logo.png" alt="R.A.I.N.BIO logo" />
           <div>
-            <label>OpenAI API Key</label>
-            <input value="サーバー側の環境変数 OPENAI_API_KEY を使用" readOnly />
+            <h1>R.A.I.N.BIO</h1>
+            <p>Canine Life Consultant · Life before profit</p>
           </div>
-          <div>
-            <label>モデル</label>
+        </div>
+        <span className="status-dot" aria-label="online" />
+      </header>
+
+      <nav className="second-brain" aria-label="Second Brain tags">
+        <span className="second-brain-label">Second Brain:</span>
+        {secondBrainTags.map(tag => <span className="brain-tag" key={tag}>{tag}</span>)}
+      </nav>
+
+      <main className="rain-main">
+        <section className="recipe-panel">
+          <div className="collapsible-head">
+            <div>
+              <h2>かんたん手作り食チェック</h2>
+              <p className="sub">CaやPを直接入力せず、食材と重量から概算します。</p>
+            </div>
+            <button
+              className="collapse-toggle"
+              type="button"
+              aria-expanded={recipeOpen}
+              onClick={() => setRecipeOpen(open => !open)}
+            >
+              {recipeOpen ? "閉じる" : "開く"}
+            </button>
+          </div>
+          <div className={`collapsible-body${recipeOpen ? "" : " collapsed"}`}>
+            <div className="row3">
+              <div>
+                <label>犬の体重 kg</label>
+                <input type="number" step="0.1" min="0.1" value={dogWeight} onChange={event => setDogWeight(event.target.value)} />
+              </div>
+              <div>
+                <label>活動係数</label>
+                <select value={activityFactor} onChange={event => setActivityFactor(event.target.value)}>
+                  <option value="1.2">減量・低活動 1.2</option>
+                  <option value="1.4">避妊去勢済み成犬 1.4</option>
+                  <option value="1.6">通常成犬 1.6</option>
+                  <option value="2.0">活動犬 2.0</option>
+                  <option value="3.0">高活動・競技犬 3.0</option>
+                </select>
+              </div>
+              <div>
+                <label>目的</label>
+                <select value={purpose} onChange={event => setPurpose(event.target.value)}>
+                  <option value="維持">維持</option>
+                  <option value="減量">減量</option>
+                  <option value="体重増加">体重増加</option>
+                  <option value="便改善">便改善</option>
+                  <option value="競技・活動犬">競技・活動犬</option>
+                </select>
+              </div>
+            </div>
+            <h3>食材を追加</h3>
+            <div className="row4">
+              <div>
+                <label>食材</label>
+                <select value={ingredientName} onChange={event => setIngredientName(event.target.value)}>
+                  {Object.entries(ingredientGroups).map(([cat, names]) => (
+                    <optgroup key={cat} label={cat}>
+                      {names.map(name => <option key={name} value={name}>{name}（{ingredients[name].cat}）</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>重量 g</label>
+                <input type="number" step="0.1" value={ingredientGram} onChange={event => setIngredientGram(event.target.value)} />
+              </div>
+              <div>
+                <label>加工方法</label>
+                <select value={processingMethod} onChange={event => setProcessingMethod(event.target.value)}>
+                  {processingMethods.map(method => <option key={method} value={method}>{method}</option>)}
+                </select>
+              </div>
+              <div><button className="soft" type="button" onClick={addIngredient}>追加</button></div>
+            </div>
+            <div className="recipe-tags">
+              {recipe.map((item, index) => <span className="pill" key={`${item.name}-${index}`}>{item.name} {item.grams}g</span>)}
+            </div>
+            <table>
+              <thead><tr><th>食材</th><th>分類</th><th>重量</th><th>加工</th><th>削除</th></tr></thead>
+              <tbody>
+                {recipe.map((item, index) => (
+                  <tr key={`${item.name}-${index}`}>
+                    <td>{item.name}</td>
+                    <td>{ingredients[item.name].cat}</td>
+                    <td>{item.grams}g</td>
+                    <td>{item.method}</td>
+                    <td><button className="danger table-action" type="button" onClick={() => removeIngredient(index)}>削除</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="recipe-actions">
+              <button className="green" type="button" onClick={calculateCurrentRecipe}>レシピを計算する</button>
+              <button className="secondary" type="button" onClick={insertRecipeIntoPrompt}>計算結果を相談文へ入れる</button>
+            </div>
+            <div className="result-box">{recipeResult}</div>
+          </div>
+        </section>
+
+        <section className="conversation-panel" aria-label="Rain Food専科 conversation">
+          <div className="chat">
+            {messages.length === 0 ? (
+              <div className="welcome-note">
+                <h2>Rain&apos;s words</h2>
+                <p>Numbers reveal what eyes cannot see. Tell me what you seek, and I will find it.</p>
+                <p className="small">レシピ計算、フード分析、体調相談を下の入力欄から始められます。</p>
+              </div>
+            ) : messages.map((message, index) => (
+              <div className={`msg ${message.role === "user" ? "user" : "assistant"}`} key={index}>
+                {(message.role === "user" ? "あなた:\n" : "Rain Food専科:\n") + message.content}
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <footer className="composer-bar">
+        <div className="utility-actions">
+          <button className="ghost" type="button" onClick={downloadLog}>💾 保存</button>
+          <button className="ghost primary-ghost" type="button" onClick={downloadLog}>📥 TXTエクスポート</button>
+          <button className="ghost" type="button" disabled={isSending} onClick={clearChat}>🗑 クリア</button>
+          <div className="model-control">
+            <label>Model</label>
             <select value={model} onChange={event => setModel(event.target.value)}>
               {modelOptions.map(option => <option key={option} value={option}>{option}</option>)}
             </select>
           </div>
         </div>
-      </div>
-
-      <div className="card">
-        <div className="collapsible-head">
-          <h2>かんたん手作り食チェック</h2>
-          <button
-            className="collapse-toggle"
-            type="button"
-            aria-expanded={recipeOpen}
-            onClick={() => setRecipeOpen(open => !open)}
-          >
-            {recipeOpen ? "閉じる" : "開く"}
-          </button>
-        </div>
-        <div className={`collapsible-body${recipeOpen ? "" : " collapsed"}`}>
-          <p className="sub">CaやPを直接入力せず、食材と重量から概算します。数値は内蔵データによる概算であり、正式な栄養設計ではありません。</p>
-          <div className="row3">
-            <div>
-              <label>犬の体重 kg</label>
-              <input type="number" step="0.1" min="0.1" value={dogWeight} onChange={event => setDogWeight(event.target.value)} />
-            </div>
-            <div>
-              <label>活動係数</label>
-              <select value={activityFactor} onChange={event => setActivityFactor(event.target.value)}>
-                <option value="1.2">減量・低活動 1.2</option>
-                <option value="1.4">避妊去勢済み成犬 1.4</option>
-                <option value="1.6">通常成犬 1.6</option>
-                <option value="2.0">活動犬 2.0</option>
-                <option value="3.0">高活動・競技犬 3.0</option>
-              </select>
-            </div>
-            <div>
-              <label>目的</label>
-              <select value={purpose} onChange={event => setPurpose(event.target.value)}>
-                <option value="維持">維持</option>
-                <option value="減量">減量</option>
-                <option value="体重増加">体重増加</option>
-                <option value="便改善">便改善</option>
-                <option value="競技・活動犬">競技・活動犬</option>
-              </select>
-            </div>
-          </div>
-          <h3>食材を追加</h3>
-          <div className="row4">
-            <div>
-              <label>食材</label>
-              <select value={ingredientName} onChange={event => setIngredientName(event.target.value)}>
-                {Object.entries(ingredientGroups).map(([cat, names]) => (
-                  <optgroup key={cat} label={cat}>
-                    {names.map(name => <option key={name} value={name}>{name}（{ingredients[name].cat}）</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label>重量 g</label>
-              <input type="number" step="0.1" value={ingredientGram} onChange={event => setIngredientGram(event.target.value)} />
-            </div>
-            <div>
-              <label>加工方法</label>
-              <select value={processingMethod} onChange={event => setProcessingMethod(event.target.value)}>
-                {processingMethods.map(method => <option key={method} value={method}>{method}</option>)}
-              </select>
-            </div>
-            <div><button className="soft" type="button" onClick={addIngredient}>追加</button></div>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            {recipe.map((item, index) => <span className="pill" key={`${item.name}-${index}`}>{item.name} {item.grams}g</span>)}
-          </div>
-          <table>
-            <thead><tr><th>食材</th><th>分類</th><th>重量</th><th>加工</th><th>削除</th></tr></thead>
-            <tbody>
-              {recipe.map((item, index) => (
-                <tr key={`${item.name}-${index}`}>
-                  <td>{item.name}</td>
-                  <td>{ingredients[item.name].cat}</td>
-                  <td>{item.grams}g</td>
-                  <td>{item.method}</td>
-                  <td><button className="danger" type="button" onClick={() => removeIngredient(index)}>削除</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button className="green" type="button" onClick={calculateCurrentRecipe}>レシピを計算する</button>
-          <button className="secondary" type="button" onClick={insertRecipeIntoPrompt}>計算結果を相談文へ入れる</button>
-          <div className="result-box">{recipeResult}</div>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2>Food専科へ相談</h2>
-        <label>相談・追加質問</label>
-        <textarea value={userInput} onChange={event => setUserInput(event.target.value)} />
-        <button type="button" disabled={isSending} onClick={sendMessage}>{isSending ? "送信中…" : "送信"}</button>
-        <button className="secondary" type="button" onClick={downloadLog}>会話をテキストでダウンロード</button>
-        <button className="danger" type="button" disabled={isSending} onClick={clearChat}>会話履歴をクリア</button>
-        <p className="small">v4では会話履歴をサーバー側API経由でOpenAIへ送ります。長く使うほど少しずつトークン消費が増えます。</p>
-      </div>
-
-      <div className="card">
-        <h2>会話</h2>
-        <div className="chat">
-          {messages.length === 0 ? "まだ会話はありません。" : messages.map((message, index) => (
-            <div className={`msg ${message.role === "user" ? "user" : "assistant"}`} key={index}>
-              {(message.role === "user" ? "あなた:\n" : "Rain Food専科:\n") + message.content}
-            </div>
+        <div className="quick-actions">
+          {quickPrompts.map(prompt => (
+            <button className="quick-chip" type="button" key={prompt.label} onClick={() => setUserInput(prompt.text)}>
+              {prompt.label}
+            </button>
           ))}
         </div>
-      </div>
-    </>
+        <div className="input-row">
+          <button className="attach-button" type="button" aria-label="添付">📎</button>
+          <textarea
+            value={userInput}
+            placeholder="犬種・年齢・体重・ご相談内容を入力..."
+            onChange={event => setUserInput(event.target.value)}
+          />
+          <button className="send-button" type="button" disabled={isSending} onClick={sendMessage}>
+            {isSending ? "…" : "▶"}
+          </button>
+        </div>
+        <p className="composer-note">OpenAI APIキーはブラウザには表示・保存されません。Vercel/ローカル環境の OPENAI_API_KEY をサーバー側API Routeだけが使用します。</p>
+      </footer>
+    </div>
   );
 }
