@@ -23,7 +23,7 @@ type ChatMessage = {
   content: string;
 };
 
-const ingredients: Record<string, Ingredient> = {"鶏むね肉":{cat:"肉類",kcal:108,protein:22.3,fat:1.5,ca:5,p:200,note:"高タンパク・低脂肪。脂質不足に注意。"},"鶏もも肉":{cat:"肉類",kcal:190,protein:16.6,fat:14.2,ca:5,p:170,note:"脂質が増えやすい。皮あり/なしで大きく変わる。"},"牛赤身":{cat:"肉類",kcal:140,protein:20,fat:6,ca:5,p:180,note:"動物性タンパク源。脂質量は部位差あり。"},"豚赤身":{cat:"肉類",kcal:150,protein:21,fat:7,ca:4,p:190,note:"加熱推奨。脂質量は部位差あり。"},"丸鶏":{cat:"肉類",kcal:220,protein:18,fat:16,ca:10,p:170,note:"部位混合。骨なし前提の概算。"},"レバー":{cat:"内臓",kcal:111,protein:18.9,fat:3.1,ca:5,p:330,note:"栄養価が高い。入れすぎ注意。"},"ハツ":{cat:"内臓",kcal:135,protein:16.5,fat:7,ca:7,p:190,note:"筋肉寄りの内臓。比較的使いやすい。"},"砂肝":{cat:"内臓",kcal:94,protein:18.3,fat:1.8,ca:7,p:170,note:"低脂肪。食感が硬いため細かく。"},"卵":{cat:"その他",kcal:151,protein:12.3,fat:10.3,ca:51,p:180,note:"良質タンパク。加熱推奨。"},"卵殻カルシウム":{cat:"Ca源",kcal:0,protein:0,fat:0,ca:38000,p:0,note:"Ca補正用。少量で大きく変わるため注意。"},"かぼちゃ":{cat:"野菜",kcal:78,protein:1.9,fat:.3,ca:20,p:40,note:"便を硬くする方向に使いやすい。"},"大根":{cat:"野菜",kcal:18,protein:.5,fat:.1,ca:24,p:18,note:"水分多め。細かく・加熱推奨。"},"セロリ":{cat:"野菜",kcal:15,protein:.4,fat:.1,ca:39,p:24,note:"香りあり。少量から。"},"パセリ":{cat:"野菜",kcal:44,protein:3.7,fat:.7,ca:290,p:61,note:"微量栄養が豊富。多量ではなく少量利用。"},"ブロッコリー":{cat:"野菜",kcal:37,protein:4.3,fat:.5,ca:38,p:89,note:"細かく・加熱推奨。量は控えめから。"},"青梗菜":{cat:"野菜",kcal:9,protein:.6,fat:.1,ca:100,p:27,note:"低カロリー。加熱・細かく。"},"レタス":{cat:"野菜",kcal:12,protein:.6,fat:.1,ca:19,p:22,note:"水分が多い。栄養源というより補助。"},"パイナップル":{cat:"果物",kcal:54,protein:.6,fat:.1,ca:11,p:9,note:"糖質に注意。少量。"},"ブルーベリー":{cat:"果物",kcal:49,protein:.5,fat:.1,ca:8,p:9,note:"少量の補助。糖質量に注意。"},"ラズベリー":{cat:"果物",kcal:41,protein:1.1,fat:.1,ca:22,p:29,note:"少量の補助。"},"ブラックベリー":{cat:"果物",kcal:43,protein:1.4,fat:.5,ca:29,p:22,note:"少量の補助。"},"チアシード":{cat:"その他",kcal:486,protein:16.5,fat:30.7,ca:631,p:860,note:"可溶性繊維・脂質。入れすぎ注意。吸水推奨。"}};
+const ingredients: Record<string, Ingredient> = {"鶏むね肉":{cat:"肉類",kcal:108,protein:22.3,fat:1.5,ca:5,p:200,note:"高タンパク・低脂肪。脂質不足に注意。"},"鶏もも肉":{cat:"肉類",kcal:190,protein:16.6,fat:14.2,ca:5,p:170,note:"脂質が増えやすい。皮あり/なしで大きく変わる。"},"牛赤身":{cat:"肉類",kcal:140,protein:20,fat:6,ca:5,p:180,note:"動物性タンパク源。脂質量は部位差あり。"},"豚赤身":{cat:"肉類",kcal:150,protein:21,fat:7,ca:4,p:190,note:"加熱推奨。脂質量は部位差あり。"},"丸鶏":{cat:"肉類",kcal:220,protein:18,fat:16,ca:10,p:170,note:"部位混合。骨なし前提の概算。"},"レバー":{cat:"内臓",kcal:111,protein:18.9,fat:3.1,ca:5,p:330,note:"栄養価が高い。入れすぎ注意。"},"ハツ":{cat:"内臓",kcal:135,protein:16.5,fat:7,ca:7,p:190,note:"筋肉寄りの内臓。比較的使いやすい。"},"砂肝":{cat:"内臓",kcal:94,protein:18.3,fat:1.8,ca:7,p:170,note:"低脂肪。食感が硬いため細かく。"},"卵":{cat:"その他",kcal:151,protein:12.3,fat:10.3,ca:51,p:180,note:"良質タンパク。加熱推奨。"},"卵殻カルシウム":{cat:"Ca源",kcal:0,protein:0,fat:0,ca:38000,p:0,note:"Ca補正用。少量で大きく変わるため注意。"},"かぼちゃ":{cat:"野菜",kcal:78,protein:1.9,fat:.3,ca:20,p:40,note:"便を硬くする方向に使いやすい。"},"大根":{cat:"野菜",kcal:18,protein:.5,fat:.1,ca:24,p:18,note:"水分多め。細かく・加熱推奨。"},"セロリ":{cat:"野菜",kcal:15,protein:.4,fat:.1,ca:39,p:24,note:"香りあり。少量から。"},"パセリ":{cat:"野菜",kcal:44,protein:3.7,fat:.7,ca:290,p:61,note:"微量栄養が豊富。多量ではなく少量利用。"},"ブロッコリー":{cat:"野菜",kcal:37,protein:4.3,fat:.5,ca:38,p:89,note:"細かく・加熱推奨。量は控えめから。"},"青梗菜":{cat:"野菜",kcal:9,protein:.6,fat:.1,ca:100,p:27,note:"低カロリー。加熱・細かく。"},"レタス":{cat:"野菜",kcal:12,protein:.6,fat:.1,ca:19,p:22,note:"水分が多い。栄養源というより補助。"},"パイナップル":{cat:"果物",kcal:54,protein:.6,fat:.1,ca:11,p:9,note:"糖質に注意。少量。"},"ブルーベリー":{cat:"果物",kcal:49,protein:.5,fat:.1,ca:8,p:9,note:"少量の補助。糖質量に注意。"},"ラズベリー":{cat:"果物",kcal:41,protein:1.1,fat:.1,ca:22,p:29,note:"少量の補助。"},"ブラックベリー":{cat:"果物",kcal:43,protein:1.4,fat:.5,ca:29,p:22,note:"少量の補助。"},"チアシード":{cat:"その他",kcal:486,protein:16.5,fat:30.7,ca:631,p:860,note:"可溶性繊維・脂質。入れすぎ注意。吸水推奨。"},"キビナゴ":{cat:"魚類",kcal:93,protein:18,fat:1.4,ca:100,p:190,note:"EPA/DHA・ビタミンD補助。小型魚で大型魚より水銀蓄積リスクは低め。無塩・加熱推奨。骨ごと利用時はCaが上振れしやすい。"},"子アジ":{cat:"魚類",kcal:112,protein:19.7,fat:4.5,ca:66,p:230,note:"EPA/DHA・ビタミンD補助。小型魚で大型魚より水銀蓄積リスクは低め。無塩・加熱推奨。骨ごと利用時はCaが上振れしやすい。"},"イワシ":{cat:"魚類",kcal:156,protein:19.2,fat:9.2,ca:74,p:230,note:"EPA/DHA・ビタミンD補助。小型魚で大型魚より水銀蓄積リスクは低め。脂質が増えやすいため量に注意。無塩・加熱推奨。"},"ニンジン":{cat:"野菜",kcal:35,protein:.7,fat:.2,ca:28,p:26,note:"βカロテン補給。発酵野菜材料として使いやすい。細かく刻み、加熱または発酵推奨。"}};
 
 const seedRecipe: RecipeItem[] = [
   {name:"鶏むね肉",grams:250,method:"ボイル"},
@@ -86,13 +86,13 @@ function createRecipeText(recipe: RecipeItem[], weight: number, factor: number, 
   const pe = kcal > 0 ? (protein * 4) / kcal * 100 : NaN;
   const fe = kcal > 0 ? (fat * 9) / kcal * 100 : NaN;
   const cats = recipe.map(x => ingredients[x.name].cat);
-  const hasMeat = cats.includes("肉類");
+  const hasMeat = cats.includes("肉類") || cats.includes("魚類");
   const hasOrgan = cats.includes("内臓");
   const hasCa = recipe.some(x => ingredients[x.name].cat === "Ca源");
   const hasPumpkin = recipe.some(x => x.name === "かぼちゃ");
   const hasChia = recipe.some(x => x.name === "チアシード");
   const hasBoiledChicken = recipe.some(x => x.name.includes("鶏") && x.method === "ボイル");
-  const rawMeat = recipe.some(x => ingredients[x.name].cat === "肉類" && x.method === "生");
+  const rawMeat = recipe.some(x => (ingredients[x.name].cat === "肉類" || ingredients[x.name].cat === "魚類") && x.method === "生");
   const vegRaw = recipe.some(x => ingredients[x.name].cat === "野菜" && x.method === "そのまま");
   const liverG = recipe.filter(x => x.name === "レバー").reduce((s, x) => s + x.grams, 0);
   const flags: string[] = [];
@@ -104,7 +104,7 @@ function createRecipeText(recipe: RecipeItem[], weight: number, factor: number, 
   if (hasPumpkin) flags.push("✅ かぼちゃ入り。便を硬めに整える方向で役立つ場合があります。");
   if (hasChia) flags.push("✅ チアシード入り。可溶性繊維・脂質源として使えますが吸水と量に注意。");
   if (hasBoiledChicken) flags.push("ℹ️ 鶏肉ボイルあり。軟便対策として流水で軽く流す選択肢があります。");
-  if (rawMeat) flags.push("⚠️ 生肉あり。犬側の適性だけでなく、人間側の衛生管理が必要です。");
+  if (rawMeat) flags.push("⚠️ 生の動物性食材あり。犬側の適性だけでなく、人間側の衛生管理が必要です。");
   if (vegRaw) flags.push("⚠️ そのままの野菜があります。初心者は細かく刻み、加熱または発酵が無難です。");
   if (kcal <= 0) flags.push("⚠️ 総カロリーが0kcalのため、1000kcalあたりのCa/Pやエネルギー比は計算できません。");
   if (p <= 0) flags.push("⚠️ リンが0mgのため、Ca:P比は計算できません。");
@@ -141,7 +141,7 @@ export default function Page() {
 
   function methodForIngredient(name: string) {
     const cat = ingredients[name].cat;
-    if (cat === "肉類" || cat === "内臓") return meatCook;
+    if (cat === "肉類" || cat === "内臓" || cat === "魚類") return meatCook;
     if (cat === "野菜") return vegCook;
     return "そのまま";
   }
