@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Ingredient = {
   cat: string;
@@ -21,6 +22,12 @@ type RecipeItem = {
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+type AuthUser = {
+  email: string;
+  status: "active" | "suspended";
+  mustChangePassword: boolean;
 };
 
 const ingredients: Record<string, Ingredient> = {"鶏むね（皮付き）":{cat:"肉類",kcal:133,protein:21.3,fat:5.9,ca:4,p:200,note:"皮付き標準。高タンパクで、皮なしより脂質とカロリーが増える。脂質量は皮の量で変わる。"},"鶏もも肉":{cat:"肉類",kcal:190,protein:16.6,fat:14.2,ca:5,p:170,note:"脂質が増えやすい。皮あり/なしで大きく変わる。"},"牛赤身":{cat:"肉類",kcal:140,protein:20,fat:6,ca:5,p:180,note:"動物性タンパク源。脂質量は部位差あり。"},"豚赤身":{cat:"肉類",kcal:150,protein:21,fat:7,ca:4,p:190,note:"加熱推奨。脂質量は部位差あり。"},"丸鶏":{cat:"肉類",kcal:220,protein:18,fat:16,ca:10,p:170,note:"部位混合。骨なし前提の概算。"},"レバー":{cat:"内臓",kcal:111,protein:18.9,fat:3.1,ca:5,p:330,note:"栄養価が高い。入れすぎ注意。"},"ハツ":{cat:"内臓",kcal:135,protein:16.5,fat:7,ca:7,p:190,note:"筋肉寄りの内臓。比較的使いやすい。"},"砂肝":{cat:"内臓",kcal:94,protein:18.3,fat:1.8,ca:7,p:170,note:"低脂肪。食感が硬いため細かく。"},"卵":{cat:"その他",kcal:151,protein:12.3,fat:10.3,ca:51,p:180,note:"良質タンパク。加熱推奨。"},"卵殻カルシウム":{cat:"Ca源",kcal:0,protein:0,fat:0,ca:38000,p:0,note:"Ca補正用。少量で大きく変わるため注意。"},"かぼちゃ":{cat:"野菜",kcal:78,protein:1.9,fat:.3,ca:20,p:40,note:"便を硬くする方向に使いやすい。"},"大根":{cat:"野菜",kcal:18,protein:.5,fat:.1,ca:24,p:18,note:"水分多め。細かく・加熱推奨。"},"セロリ":{cat:"野菜",kcal:15,protein:.4,fat:.1,ca:39,p:24,note:"香りあり。少量から。"},"パセリ":{cat:"野菜",kcal:44,protein:3.7,fat:.7,ca:290,p:61,note:"微量栄養が豊富。多量ではなく少量利用。"},"ブロッコリー":{cat:"野菜",kcal:37,protein:4.3,fat:.5,ca:38,p:89,note:"細かく・加熱推奨。量は控えめから。"},"青梗菜":{cat:"野菜",kcal:9,protein:.6,fat:.1,ca:100,p:27,note:"低カロリー。加熱・細かく。"},"レタス":{cat:"野菜",kcal:12,protein:.6,fat:.1,ca:19,p:22,note:"水分が多い。栄養源というより補助。"},"パイナップル":{cat:"果物",kcal:54,protein:.6,fat:.1,ca:11,p:9,note:"糖質に注意。少量。"},"ブルーベリー":{cat:"果物",kcal:49,protein:.5,fat:.1,ca:8,p:9,note:"少量の補助。糖質量に注意。"},"ラズベリー":{cat:"果物",kcal:41,protein:1.1,fat:.1,ca:22,p:29,note:"少量の補助。"},"ブラックベリー":{cat:"果物",kcal:43,protein:1.4,fat:.5,ca:29,p:22,note:"少量の補助。"},"チアシード":{cat:"その他",kcal:486,protein:16.5,fat:30.7,ca:631,p:860,note:"可溶性繊維・脂質。入れすぎ注意。吸水推奨。"},"キビナゴ":{cat:"魚類",kcal:93,protein:18,fat:1.4,ca:100,p:190,note:"EPA/DHA・ビタミンD補助。小型魚で大型魚より水銀蓄積リスクは低め。無塩・加熱推奨。骨ごと利用時はCaが上振れしやすい。"},"子アジ":{cat:"魚類",kcal:112,protein:19.7,fat:4.5,ca:66,p:230,note:"EPA/DHA・ビタミンD補助。小型魚で大型魚より水銀蓄積リスクは低め。無塩・加熱推奨。骨ごと利用時はCaが上振れしやすい。"},"イワシ":{cat:"魚類",kcal:156,protein:19.2,fat:9.2,ca:74,p:230,note:"EPA/DHA・ビタミンD補助。小型魚で大型魚より水銀蓄積リスクは低め。脂質が増えやすいため量に注意。無塩・加熱推奨。"},"ニンジン":{cat:"野菜",kcal:35,protein:.7,fat:.2,ca:28,p:26,note:"βカロテン補給。発酵野菜材料として使いやすい。細かく刻み、加熱または発酵推奨。"}};
@@ -137,7 +144,66 @@ export default function Page() {
   const [saveStatus, setSaveStatus] = useState("");
   const [meatCook, setMeatCook] = useState("ボイル");
   const [vegCook, setVegCook] = useState("発酵");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const activeRequestId = useRef(0);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadSession() {
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        if (!mounted) return;
+        if (!response.ok) {
+          setAuthUser(null);
+          return;
+        }
+        const data = await response.json();
+        setAuthUser(data.user ?? null);
+      } catch {
+        if (mounted) setAuthUser(null);
+      } finally {
+        if (mounted) setAuthLoading(false);
+      }
+    }
+    void loadSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginError("");
+    setIsLoggingIn(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setLoginError(typeof data.error === "string" ? data.error : "ログインできませんでした。");
+        return;
+      }
+      setAuthUser(data.user);
+      setLoginPassword("");
+    } catch {
+      setLoginError("通信に失敗しました。時間をおいてもう一度お試しください。");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setAuthUser(null);
+  }
 
   function methodForIngredient(name: string) {
     const cat = ingredients[name].cat;
@@ -327,6 +393,66 @@ ${input}
     await sendMessage(prompt);
   }
 
+  if (authLoading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-paws">🐾</div>
+          <div className="auth-kicker">Food専科 BIO mini</div>
+          <h1>ドッグフード評価AI</h1>
+          <p className="auth-copy">会員情報を確認しています。</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser || authUser.status === "suspended") {
+    return (
+      <div className="auth-page">
+        <form className="auth-card" onSubmit={handleLogin}>
+          <div className="auth-paws">🐾</div>
+          <div className="auth-kicker">Food専科 BIO mini</div>
+          <h1>ドッグフード評価AI</h1>
+          {authUser?.status === "suspended" ? (
+            <p className="auth-copy auth-error-text">このアカウントは現在停止中です。登録メールアドレスからお問い合わせください。</p>
+          ) : (
+            <p className="auth-copy">会員専用サービスです。購入後に届いたメールアドレスとパスワードでログインしてください。</p>
+          )}
+          <label className="auth-label" htmlFor="login-email">メールアドレス</label>
+          <input
+            id="login-email"
+            className="auth-input"
+            type="email"
+            autoComplete="email"
+            value={loginEmail}
+            onChange={event => setLoginEmail(event.target.value)}
+            placeholder="you@example.com"
+          />
+          <label className="auth-label" htmlFor="login-password">パスワード</label>
+          <input
+            id="login-password"
+            className="auth-input"
+            type="password"
+            autoComplete="current-password"
+            value={loginPassword}
+            onChange={event => setLoginPassword(event.target.value)}
+            placeholder="••••••••"
+          />
+          {loginError && <div className="auth-error-text">{loginError}</div>}
+          <button className="auth-submit" type="submit" disabled={isLoggingIn}>
+            {isLoggingIn ? "確認中..." : "🌿 ログイン"}
+          </button>
+          <p className="auth-note">ログイン情報は購入完了後、ご登録メールアドレスへ自動送信されます。</p>
+          {authUser?.status === "suspended" && (
+            <button className="auth-secondary" type="button" onClick={() => void handleLogout()}>
+              別のアカウントでログイン
+            </button>
+          )}
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -341,6 +467,7 @@ ${input}
           </select>
         </div>
         <div className="status-dot" />
+        <button className="logout-btn" type="button" onClick={() => void handleLogout()}>ログアウト</button>
       </header>
 
       <nav className="tab-bar" aria-label="Main tabs">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getSessionUser } from "../../../lib/auth";
 
 export const runtime = "nodejs";
 
@@ -175,6 +176,14 @@ function isChatMessage(value: unknown): value is ChatMessage {
 }
 
 export async function POST(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  }
+  if (user.status !== "active") {
+    return NextResponse.json({ error: "このアカウントは現在停止中です。" }, { status: 403 });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
