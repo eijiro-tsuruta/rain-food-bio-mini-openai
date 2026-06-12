@@ -194,7 +194,9 @@ function buildInstructions(messages: ChatMessage[]): string {
 画像・商品検索ルール:
 - ユーザーが写真を送った場合、写真から読み取れる範囲と断定できない範囲を分けて説明する。
 - 商品写真、フード名、サプリ名、保証成分、原材料、栄養成分、カロリーを問われた場合は、利用可能ならWeb検索で確認する。
+- 日本語の相談では、日本公式、正規輸入元、日本販売ページを先に探す。見つからない場合だけ海外公式ページを使い、「米国公式」「カナダ公式」など出典地域を明記する。
 - 公式メーカー、販売ページ、商品ラベル情報を優先し、保証成分は確認元URLを本文中に示す。
+- 英語ページから原材料や保証成分を取得した場合でも、回答本文では日本語へ訳して整理する。英語原文を長く貼り付けない。
 - Webで確認できない数値は、推測せず「確認できない」と明記する。`;
   if (!selectedKnowledge) return `${systemPrompt}${extraPolicy}`;
   return `${systemPrompt}${extraPolicy}\n\n# Selected Markdown Knowledge\n${selectedKnowledge}`;
