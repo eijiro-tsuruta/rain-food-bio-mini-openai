@@ -236,6 +236,16 @@ const PRODUCT_SEARCH_WORDS = [
   "calorie"
 ];
 
+const INTAKE_CONTEXT_PATTERN = /食べ|食べた|与え|あげ|給与|給餌|食事|フード変更|切り替え|誤食|摂取|飲ん|舐め|なめ|かじ|食いつき|食欲/i;
+const SUITABILITY_CONTEXT_PATTERN = /成犬に|子犬に|パピーに|シニアに|合う|向く|使える|大丈夫|問題ない|危険|短期|長期|続け|切り替え/i;
+const FOOD_CONTEXT_PATTERN = /フード|ドッグフード|ごはん|食事|商品|製品|パピー|成犬|シニア|原材料|保証成分|栄養|カロリー/i;
+const INGESTION_RISK_PATTERN = /誤食|食べた|飲んだ|舐めた|なめた|かじった|摂取|中毒|毒|危険/i;
+const DOG_BREED_PATTERN = /犬種|柴犬|チワワ|トイプードル|プードル|ダックス|ポメラニアン|フレンチブル|フレブル|コーギー|ラブラドール|ゴールデン|シュナウザー|マルチーズ|ヨーキー|パピヨン|ビーグル|ボーダーコリー|シーズー|ミックス|雑種/i;
+const DOG_AGE_PATTERN = /\d+(?:\.\d+)?\s*(歳|才|ヶ月|か月|ヵ月|カ月)|年齢/i;
+const DOG_SEX_PATTERN = /オス|雄|男の子|メス|雌|女の子|去勢|避妊|未去勢|未避妊|性別/i;
+const DOG_WEIGHT_PATTERN = /\d+(?:\.\d+)?\s*(kg|KG|キロ|㎏)|体重/i;
+const DOG_ACTIVITY_PATTERN = /活動量|運動量|散歩|運動|目的|維持|減量|痩せ|太り|筋肉|涙やけ|皮膚|被毛|便|下痢|軟便|健康|持病|腎|肝|膵|アレルギー/i;
+
 type SecondBrainModule = {
   id: string;
   layer: "Nutrition" | "Health" | "Knowledge" | "Context";
@@ -341,8 +351,62 @@ function buildSecondBrainContext(modules: SecondBrainModule[]): string {
   ].join("\n\n");
 }
 
+type DogProfileGate = {
+  missing: string[];
+  isIngestionRisk: boolean;
+};
+
+function latestUserText(messages: ChatMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user") return messageText(message);
+  }
+  return "";
+}
+
+function dogProfileGate(messages: ChatMessage[]): DogProfileGate | null {
+  const latestText = latestUserText(messages);
+  const allText = messages.map(messageText).join("\n");
+  const isFoodSuitability = FOOD_CONTEXT_PATTERN.test(latestText) && SUITABILITY_CONTEXT_PATTERN.test(latestText);
+  const isIntakeContext = INTAKE_CONTEXT_PATTERN.test(latestText) || isFoodSuitability;
+  if (!isIntakeContext) return null;
+
+  const missing: string[] = [];
+  if (!DOG_BREED_PATTERN.test(allText)) missing.push("犬種");
+  if (!DOG_AGE_PATTERN.test(allText)) missing.push("年齢");
+  if (!DOG_SEX_PATTERN.test(allText)) missing.push("性別・去勢/避妊の有無");
+  if (!DOG_WEIGHT_PATTERN.test(allText)) missing.push("体重");
+  if (!DOG_ACTIVITY_PATTERN.test(allText)) missing.push("活動量・目的・健康状態");
+
+  if (missing.length === 0) return null;
+  return {
+    missing,
+    isIngestionRisk: INGESTION_RISK_PATTERN.test(latestText)
+  };
+}
+
+function buildDogProfileGateInstruction(messages: ChatMessage[]): string {
+  const gate = dogProfileGate(messages);
+  if (!gate) return "";
+
+  const riskLine = gate.isIngestionRisk
+    ? "- If this is ingestion/toxicity risk, ask first for amount eaten, time since ingestion, body weight, symptoms, and cooked/raw or product concentration when relevant."
+    : "- If this is food suitability or feeding advice, ask for dog breed, age, sex/neuter status, body weight, activity level, health status, and purpose.";
+
+  return `
+
+Dog Profile Gate:
+- The latest user message is an intake, feeding, or suitability question.
+- Do not evaluate only the product in isolation. Suitability depends on the individual dog.
+- Near the top of the answer, explicitly ask for the missing dog profile items: ${gate.missing.join("、")}。
+- Still provide a short provisional food-side assessment when possible. Do not stop with questions only.
+${riskLine}
+- Phrase the provisional nature clearly: "以下はフード側だけの暫定評価です" or equivalent.`;
+}
+
 function buildInstructions(messages: ChatMessage[]): string {
   const secondBrainContext = buildSecondBrainContext(selectSecondBrainModules(messages));
+  const dogProfileContext = buildDogProfileGateInstruction(messages);
 
   const extraPolicy = `
 
@@ -354,8 +418,8 @@ function buildInstructions(messages: ChatMessage[]): string {
 - 英語ページから原材料や保証成分を取得した場合でも、回答本文では日本語へ訳して整理する。英語原文を長く貼り付けない。
 - 出典URLは各文や各箇条書きに何度も挿入しない。回答の最後に「参考資料」としてまとめる。
 - Webで確認できない数値は、推測せず「確認できない」と明記する。`;
-  if (!secondBrainContext) return `${systemPrompt}${answerComposer}${extraPolicy}`;
-  return `${systemPrompt}${answerComposer}${extraPolicy}\n\n${secondBrainContext}`;
+  if (!secondBrainContext) return `${systemPrompt}${answerComposer}${extraPolicy}${dogProfileContext}`;
+  return `${systemPrompt}${answerComposer}${extraPolicy}${dogProfileContext}\n\n${secondBrainContext}`;
 }
 
 function extractResponseText(data: unknown): string {
@@ -416,6 +480,20 @@ function repairFoodAnswerText(text: string): string {
       /成犬用フードへの切り替え計画をおすすめします。?|成犬用フードへの切り替えをおすすめします。?/g,
       "長期利用するかどうかは、体重、便、皮膚・被毛、水分摂取、活動量、リン、Ca:P比、脂肪量を見て判断します。"
     );
+}
+
+function ensureDogProfilePrompt(text: string, messages: ChatMessage[]): string {
+  const gate = dogProfileGate(messages);
+  if (!gate || !text) return text;
+  const asksForProfile = /(犬種|体重|年齢|去勢|避妊|活動量|目的)[^。\n]*(教えて|分かる|わかる|確認|必要|共有|入力)|(?:教えて|分かる|わかる|確認|必要|共有|入力)[^。\n]*(犬種|体重|年齢|去勢|避妊|活動量|目的)/.test(text);
+  if (asksForProfile) return text;
+
+  const basePrompt = `正確な適合判断には、この子の情報が必要です。${gate.missing.join("、")}を教えてください。`;
+  const riskPrompt = gate.isIngestionRisk
+    ? "誤食・中毒リスクを見る場合は、食べた量、食べてからの時間、症状の有無も重要です。"
+    : "以下はフード側だけの暫定評価です。";
+
+  return `${basePrompt}\n${riskPrompt}\n\n${text}`;
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {
@@ -579,7 +657,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data }, { status: response.status });
     }
 
-    const text = repairFoodAnswerText(compactReferenceLinks(extractResponseText(data)));
+    const text = ensureDogProfilePrompt(
+      repairFoodAnswerText(compactReferenceLinks(extractResponseText(data))),
+      messages
+    );
     return NextResponse.json({ text, raw: text ? undefined : data });
   } catch (error) {
     const message = error instanceof Error && error.name === "AbortError"
