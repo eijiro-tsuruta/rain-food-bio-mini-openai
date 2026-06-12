@@ -197,6 +197,7 @@ function buildInstructions(messages: ChatMessage[]): string {
 - 日本語の相談では、日本公式、正規輸入元、日本販売ページを先に探す。見つからない場合だけ海外公式ページを使い、「米国公式」「カナダ公式」など出典地域を明記する。
 - 公式メーカー、販売ページ、商品ラベル情報を優先し、保証成分は確認元URLを本文中に示す。
 - 英語ページから原材料や保証成分を取得した場合でも、回答本文では日本語へ訳して整理する。英語原文を長く貼り付けない。
+- 出典URLは各文や各箇条書きに何度も挿入しない。回答の最後に「参考資料」としてまとめる。
 - Webで確認できない数値は、推測せず「確認できない」と明記する。`;
   if (!selectedKnowledge) return `${systemPrompt}${extraPolicy}`;
   return `${systemPrompt}${extraPolicy}\n\n# Selected Markdown Knowledge\n${selectedKnowledge}`;
@@ -223,6 +224,29 @@ function extractResponseText(data: unknown): string {
     }
   }
   return text.trim();
+}
+
+function compactReferenceLinks(text: string): string {
+  const references = new Map<string, string>();
+  const withoutInlineReferences = text.replace(
+    /\s*\(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\)/g,
+    (_match, label: string, url: string) => {
+      references.set(url, label);
+      return "";
+    }
+  );
+
+  if (references.size === 0) return text;
+
+  const cleanedText = withoutInlineReferences
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const referenceLines = Array.from(references.entries())
+    .map(([url, label], index) => `${index + 1}. ${label}: ${url}`)
+    .join("\n");
+
+  return `${cleanedText}\n\n参考資料:\n${referenceLines}`;
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {
@@ -386,7 +410,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data }, { status: response.status });
     }
 
-    const text = extractResponseText(data);
+    const text = compactReferenceLinks(extractResponseText(data));
     return NextResponse.json({ text, raw: text ? undefined : data });
   } catch (error) {
     const message = error instanceof Error && error.name === "AbortError"
