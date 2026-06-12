@@ -187,53 +187,113 @@ const PRODUCT_SEARCH_WORDS = [
   "calorie"
 ];
 
-const knowledgeFiles = {
-  core: "core-rules.md",
-  nutrition: "nutrition.md",
-  health: "health.md",
-  evidence: "evidence.md",
-  calc: "calc-rules.md",
-  foodEvaluation: "food-evaluation.md"
-} as const;
+type SecondBrainModule = {
+  id: string;
+  layer: "Nutrition" | "Health" | "Knowledge" | "Context";
+  subject: string;
+  file: string;
+  always?: boolean;
+  triggers: RegExp[];
+  reason: string;
+};
 
-type KnowledgeKey = keyof typeof knowledgeFiles;
+const SECOND_BRAIN_MODULES: SecondBrainModule[] = [
+  {
+    id: "#Knowledge:CoreRules",
+    layer: "Knowledge",
+    subject: "CoreRules",
+    file: "core-rules.md",
+    always: true,
+    triggers: [],
+    reason: "回答の基本姿勢、情報不足時の暫定評価、禁止回答を制御するため"
+  },
+  {
+    id: "#Knowledge:Evidence",
+    layer: "Knowledge",
+    subject: "Evidence",
+    file: "evidence.md",
+    always: true,
+    triggers: [],
+    reason: "根拠の強さ、推定表現、ブランドバイアス排除を制御するため"
+  },
+  {
+    id: "#Nutrition:FoodEvaluation",
+    layer: "Nutrition",
+    subject: "FoodEvaluation",
+    file: "food-evaluation.md",
+    triggers: [/原材料|保証成分|ドッグフード|フード評価|総合栄養食|粗タンパク|粗脂肪|代謝エネルギー|ME|加水分解|HVP|豆|エンドウ|レンズ|グルテン|プロテイン|リン|Ca:?P|カルシウム|商品|製品|ブランド/i],
+    reason: "商品・フードを原材料、保証成分、豆類、油脂、Ca:Pで構造評価するため"
+  },
+  {
+    id: "#Nutrition:General",
+    layer: "Nutrition",
+    subject: "GeneralNutrition",
+    file: "nutrition.md",
+    triggers: [/手作り|レシピ|給与量|給餌|食材|肉|内臓|発酵野菜|卵殻|さつまいも|白米|豆|レバー|チキン|鶏|魚|野菜|タンパク|脂質/i],
+    reason: "食材、動物性/植物性タンパク、手作り食の栄養方針を照合するため"
+  },
+  {
+    id: "#Knowledge:CalculationRules",
+    layer: "Knowledge",
+    subject: "CalculationRules",
+    file: "calc-rules.md",
+    triggers: [/RER|DER|Ca:?P|カルシウム|リン|kcal|カロリー|mg|1000kcal|計算|給与量|比率/i],
+    reason: "単位、Ca:P、RER/DER、アプリ計算値の扱いを固定するため"
+  },
+  {
+    id: "#Health:DietHealth",
+    layer: "Health",
+    subject: "DietHealth",
+    file: "health.md",
+    triggers: [/体調|健康|症状|軟便|下痢|嘔吐|皮膚|痒|腎|肝|膵|アレルギー|シニア|病気|投薬|尿|便|水分|飲水/i],
+    reason: "食事と健康状態、腎臓、皮膚、便、急性症状を結びつけるため"
+  }
+];
 
-function readKnowledgeFile(key: KnowledgeKey): string {
+function readKnowledgeFile(file: string): string {
   try {
-    return readFileSync(join(process.cwd(), "knowledge", knowledgeFiles[key]), "utf8").trim();
+    return readFileSync(join(process.cwd(), "knowledge", file), "utf8").trim();
   } catch {
     return "";
   }
 }
 
-function selectKnowledge(messages: ChatMessage[]): KnowledgeKey[] {
+function selectSecondBrainModules(messages: ChatMessage[]): SecondBrainModule[] {
   const text = messages.map(messageText).join("\n");
-  const selected = new Set<KnowledgeKey>(["core", "evidence"]);
+  return SECOND_BRAIN_MODULES.filter(module => {
+    if (module.always) return true;
+    return module.triggers.some(trigger => trigger.test(text));
+  });
+}
 
-  if (/手作り|レシピ|給与量|給餌|RER|DER|Ca:?P|カルシウム|リン|卵殻|内臓|発酵野菜|食材/.test(text)) {
-    selected.add("nutrition");
-    selected.add("calc");
-  }
+function buildSecondBrainContext(modules: SecondBrainModule[]): string {
+  const sections = modules
+    .map(module => {
+      const content = readKnowledgeFile(module.file);
+      if (!content) return "";
+      return [
+        `## ${module.id}`,
+        `Layer: ${module.layer}`,
+        `Subject: ${module.subject}`,
+        `Reason: ${module.reason}`,
+        "",
+        content
+      ].join("\n");
+    })
+    .filter(Boolean);
 
-  if (/原材料|保証成分|ドッグフード|フード評価|総合栄養食|粗タンパク|粗脂肪|代謝エネルギー|ME|加水分解|HVP|豆|エンドウ|レンズ|グルテン|プロテイン/.test(text)) {
-    selected.add("foodEvaluation");
-    selected.add("nutrition");
-  }
-
-  if (/体調|健康|症状|軟便|下痢|嘔吐|皮膚|痒|腎|肝|膵|アレルギー|シニア|病気|投薬|尿|便/.test(text)) {
-    selected.add("health");
-    selected.add("evidence");
-  }
-
-  return Array.from(selected);
+  if (sections.length === 0) return "";
+  return [
+    "# R.A.I.N.BIO Second Brain Selected Modules",
+    "The following Markdown modules were selected by the Second Brain Router. Use them as factual knowledge, not as optional decoration.",
+    "If selected knowledge conflicts with generic assumptions or product labels, prefer the selected knowledge and explain the conflict.",
+    "",
+    ...sections
+  ].join("\n\n");
 }
 
 function buildInstructions(messages: ChatMessage[]): string {
-  const selectedKnowledge = selectKnowledge(messages)
-    .map(key => readKnowledgeFile(key))
-    .filter(Boolean)
-    .map(content => `---\n${content}`)
-    .join("\n\n");
+  const secondBrainContext = buildSecondBrainContext(selectSecondBrainModules(messages));
 
   const extraPolicy = `
 
@@ -245,8 +305,8 @@ function buildInstructions(messages: ChatMessage[]): string {
 - 英語ページから原材料や保証成分を取得した場合でも、回答本文では日本語へ訳して整理する。英語原文を長く貼り付けない。
 - 出典URLは各文や各箇条書きに何度も挿入しない。回答の最後に「参考資料」としてまとめる。
 - Webで確認できない数値は、推測せず「確認できない」と明記する。`;
-  if (!selectedKnowledge) return `${systemPrompt}${extraPolicy}`;
-  return `${systemPrompt}${extraPolicy}\n\n# Selected Markdown Knowledge\n${selectedKnowledge}`;
+  if (!secondBrainContext) return `${systemPrompt}${extraPolicy}`;
+  return `${systemPrompt}${extraPolicy}\n\n${secondBrainContext}`;
 }
 
 function extractResponseText(data: unknown): string {
