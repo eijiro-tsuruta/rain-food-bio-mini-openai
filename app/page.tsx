@@ -21,7 +21,30 @@ type RecipeItem = {
 
 type ChatMessage = {
   role: "user" | "assistant";
-  content: string;
+  content: ChatContent;
+};
+
+type ChatContent = string | ChatContentPart[];
+
+type ChatContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: string;
+        data: string;
+      };
+    };
+
+type PreparedPhoto = {
+  displayUrl: string;
+  contentPart: Extract<ChatContentPart, { type: "image" }>;
+};
+
+type SelectedPhoto = {
+  file: File;
+  previewUrl: string;
 };
 
 type AuthUser = {
@@ -60,6 +83,35 @@ type ActiveTab = typeof tabs[number]["id"];
 
 function round(n: number, d = 2) {
   return Number.isFinite(n) ? Number(n.toFixed(d)).toString() : "計算不可";
+}
+
+function messageText(message: ChatMessage) {
+  if (typeof message.content === "string") return message.content;
+  return message.content
+    .map(part => part.type === "text" ? part.text : "")
+    .join("\n");
+}
+
+function imageUrlFromMessage(message: ChatMessage) {
+  if (!Array.isArray(message.content)) return "";
+  const image = message.content.find(part => part.type === "image");
+  if (!image || image.type !== "image") return "";
+  return `data:${image.source.media_type};base64,${image.source.data}`;
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("写真の読み込みに失敗しました。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function parseDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) throw new Error("写真データの形式を確認できませんでした。");
+  return { mediaType: match[1], data: match[2] };
 }
 
 function buildIngredientGroups() {
@@ -140,6 +192,8 @@ export default function Page() {
   const [userInput, setUserInput] = useState("この手作り食レシピを犬に与える前提で評価してください。");
   const [evalInput, setEvalInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<SelectedPhoto | null>(null);
+  const [photoError, setPhotoError] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [meatCook, setMeatCook] = useState("ボイル");
@@ -151,6 +205,7 @@ export default function Page() {
   const [loginError, setLoginError] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const activeRequestId = useRef(0);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -175,6 +230,12 @@ export default function Page() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (selectedPhoto?.previewUrl) URL.revokeObjectURL(selectedPhoto.previewUrl);
+    };
+  }, [selectedPhoto?.previewUrl]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -203,6 +264,67 @@ export default function Page() {
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setAuthUser(null);
+  }
+
+  function clearSelectedPhoto() {
+    setSelectedPhoto(current => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return null;
+    });
+    if (photoInputRef.current) photoInputRef.current.value = "";
+    setPhotoError("");
+  }
+
+  function handlePhotoChange(fileList: FileList | null) {
+    setPhotoError("");
+    const file = fileList?.[0];
+    if (!file) {
+      clearSelectedPhoto();
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      clearSelectedPhoto();
+      setPhotoError("画像ファイルを選択してください。");
+      return;
+    }
+    if (file.size > 7 * 1024 * 1024) {
+      clearSelectedPhoto();
+      setPhotoError("写真は7MB以下にしてください。");
+      return;
+    }
+    setSelectedPhoto(current => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return { file, previewUrl: URL.createObjectURL(file) };
+    });
+  }
+
+  async function preparePhotoPart(): Promise<PreparedPhoto | null> {
+    if (!selectedPhoto) return null;
+    const dataUrl = await fileToDataUrl(selectedPhoto.file);
+    const parsed = parseDataUrl(dataUrl);
+    return {
+      displayUrl: dataUrl,
+      contentPart: {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: parsed.mediaType,
+          data: parsed.data
+        }
+      }
+    };
+  }
+
+  function buildUserContent(content: string, photo: PreparedPhoto | null): ChatContent {
+    if (!photo) return content;
+    const text = [
+      content || "この写真を見て判断してください。",
+      "添付写真を確認し、商品名・原材料・保証成分が分かる場合はWebで確認して評価してください。写真だけでは断定できない点は明記してください。"
+    ].join("\n");
+    return [
+      { type: "text", text },
+      photo.contentPart
+    ];
   }
 
   function methodForIngredient(name: string) {
@@ -295,15 +417,24 @@ ${resultText}
   async function sendMessage(overrideText?: string) {
     const content = (overrideText ?? userInput).trim();
     if (isSending) return;
-    if (!content) {
+    if (!content && !selectedPhoto) {
       alert("相談内容を入力してください。");
       return;
     }
 
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content }];
+    let photo: PreparedPhoto | null = null;
+    try {
+      photo = overrideText ? null : await preparePhotoPart();
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : "写真の読み込みに失敗しました。");
+      return;
+    }
+
+    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: buildUserContent(content, photo) }];
     const requestId = ++activeRequestId.current;
     setMessages(nextMessages);
     setUserInput("");
+    if (photo) clearSelectedPhoto();
     setIsSending(true);
 
     try {
@@ -340,6 +471,7 @@ ${resultText}
     if (confirm("会話履歴をクリアしますか？")) {
       activeRequestId.current++;
       setMessages([]);
+      clearSelectedPhoto();
       setSaveStatus("");
     }
   }
@@ -359,7 +491,7 @@ ${resultText}
     const stamp = now.toISOString().replace(/[:.]/g, "-");
     let text = "Rain Food専科 BIO mini v4.2 会話ログ\n日時: " + now.toLocaleString() + "\n\n";
     for (const m of messages) {
-      text += (m.role === "user" ? "あなた:\n" : "Rain Food専科:\n") + m.content + "\n\n---\n\n";
+      text += (m.role === "user" ? "あなた:\n" : "Rain Food専科:\n") + messageText(m) + "\n\n---\n\n";
     }
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -508,7 +640,10 @@ ${input}
                     {message.role === "user" ? "👤" : "🐾"}
                   </div>
                   <div className={`bubble ${message.role === "user" ? "user-bubble" : "ai-bubble"}`}>
-                    {message.content}
+                    {messageText(message)}
+                    {imageUrlFromMessage(message) && (
+                      <img className="message-photo" src={imageUrlFromMessage(message)} alt="添付写真" />
+                    )}
                   </div>
                 </div>
               ))}
@@ -664,6 +799,26 @@ ${input}
           <button className="btn-action" type="button" onClick={downloadLog}>📤 エクスポート</button>
           <button className="btn-action danger" type="button" disabled={isSending} onClick={clearChat}>🗑 クリア</button>
           <span className="save-status">{saveStatus}</span>
+        </div>
+        <div className="photo-row">
+          <label className="photo-btn">
+            📷 写真を添付
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
+              disabled={isSending}
+              onChange={event => handlePhotoChange(event.target.files)}
+            />
+          </label>
+          {selectedPhoto && (
+            <div className="photo-preview">
+              <img src={selectedPhoto.previewUrl} alt="添付写真プレビュー" />
+              <span>{selectedPhoto.file.name}</span>
+              <button type="button" disabled={isSending} onClick={clearSelectedPhoto}>削除</button>
+            </div>
+          )}
+          {photoError && <span className="photo-error">{photoError}</span>}
         </div>
         <div className="input-row">
           <textarea

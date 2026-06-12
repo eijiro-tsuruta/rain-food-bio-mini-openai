@@ -281,6 +281,17 @@ button:disabled{opacity:.5;cursor:not-allowed}
   color:#fff;
   border-top-right-radius:4px;
 }
+.message-photo{
+  display:block;
+  width:150px;
+  max-width:100%;
+  aspect-ratio:4/3;
+  object-fit:cover;
+  border:1px solid rgba(255,255,255,.55);
+  border-radius:10px;
+  background:var(--warm-white);
+  margin-top:10px;
+}
 .ai-bubble h1,.ai-bubble h2,.ai-bubble h3{
   font-family:Georgia,"Hiragino Mincho ProN",serif;
   color:var(--bark);
@@ -354,6 +365,70 @@ button:disabled{opacity:.5;cursor:not-allowed}
   color:var(--ok);
   margin-left:auto;
   align-self:center;
+}
+.photo-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+.photo-btn{
+  display:inline-flex;
+  align-items:center;
+  min-height:32px;
+  padding:5px 12px;
+  border-radius:16px;
+  border:1px solid var(--border);
+  background:var(--cream);
+  color:var(--bark-mid);
+  font-size:11.5px;
+  cursor:pointer;
+}
+.photo-btn:hover{
+  border-color:var(--bark-light);
+  color:var(--amber);
+}
+.photo-btn input{
+  position:absolute;
+  width:1px;
+  height:1px;
+  opacity:0;
+  pointer-events:none;
+}
+.photo-preview{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.photo-preview img{
+  width:38px;
+  height:38px;
+  border-radius:9px;
+  border:1px solid var(--border);
+  object-fit:cover;
+  background:var(--warm-white);
+}
+.photo-preview span{
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--muted);
+  font-size:11px;
+}
+.photo-preview button{
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--amber-subtle);
+  color:var(--bark-mid);
+  padding:4px 9px;
+  font-size:11px;
+}
+.photo-error{
+  color:var(--danger);
+  font-size:11px;
 }
 .input-row{
   display:flex;
@@ -623,6 +698,7 @@ textarea:focus{
   .messages,.homemade-view,.eval-view{padding:12px}
   .bubble{max-width:86%;font-size:13px}
   .input-area{padding:10px 12px}
+  .photo-preview span{max-width:150px}
   .chips{flex-wrap:nowrap;overflow-x:auto}
   .card{padding:16px}
   .ingredient-grid{grid-template-columns:1fr}

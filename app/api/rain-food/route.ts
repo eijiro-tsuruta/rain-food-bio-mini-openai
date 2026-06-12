@@ -88,8 +88,58 @@ Ca/P比は同じ単位に統一して読む。
 
 type ChatMessage = {
   role: "user" | "assistant";
-  content: string;
+  content: ChatContent;
 };
+
+type ChatContent = string | ChatContentPart[];
+
+type ChatContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: string;
+        data: string;
+      };
+    };
+
+type OpenAIInputMessage = {
+  role: "user" | "assistant";
+  content: Array<
+    | { type: "input_text"; text: string }
+    | { type: "output_text"; text: string }
+    | { type: "input_image"; image_url: string }
+  >;
+};
+
+const PRODUCT_SEARCH_WORDS = [
+  "商品",
+  "製品",
+  "フード",
+  "ドッグフード",
+  "サプリ",
+  "おやつ",
+  "トリーツ",
+  "保証成分",
+  "成分",
+  "原材料",
+  "栄養成分",
+  "カロリー",
+  "代謝エネルギー",
+  "ME",
+  "メーカー",
+  "ブランド",
+  "ラベル",
+  "パッケージ",
+  "protein",
+  "fat",
+  "fiber",
+  "moisture",
+  "guaranteed analysis",
+  "ingredients",
+  "calorie"
+];
 
 const knowledgeFiles = {
   core: "core-rules.md",
@@ -111,7 +161,7 @@ function readKnowledgeFile(key: KnowledgeKey): string {
 }
 
 function selectKnowledge(messages: ChatMessage[]): KnowledgeKey[] {
-  const text = messages.map(message => message.content).join("\n");
+  const text = messages.map(messageText).join("\n");
   const selected = new Set<KnowledgeKey>(["core", "evidence"]);
 
   if (/手作り|レシピ|給与量|給餌|RER|DER|Ca:?P|カルシウム|リン|卵殻|内臓|発酵野菜|食材/.test(text)) {
@@ -139,8 +189,15 @@ function buildInstructions(messages: ChatMessage[]): string {
     .map(content => `---\n${content}`)
     .join("\n\n");
 
-  if (!selectedKnowledge) return systemPrompt;
-  return `${systemPrompt}\n\n# Selected Markdown Knowledge\n${selectedKnowledge}`;
+  const extraPolicy = `
+
+画像・商品検索ルール:
+- ユーザーが写真を送った場合、写真から読み取れる範囲と断定できない範囲を分けて説明する。
+- 商品写真、フード名、サプリ名、保証成分、原材料、栄養成分、カロリーを問われた場合は、利用可能ならWeb検索で確認する。
+- 公式メーカー、販売ページ、商品ラベル情報を優先し、保証成分は確認元URLを本文中に示す。
+- Webで確認できない数値は、推測せず「確認できない」と明記する。`;
+  if (!selectedKnowledge) return `${systemPrompt}${extraPolicy}`;
+  return `${systemPrompt}${extraPolicy}\n\n# Selected Markdown Knowledge\n${selectedKnowledge}`;
 }
 
 function extractResponseText(data: unknown): string {
@@ -171,8 +228,77 @@ function isChatMessage(value: unknown): value is ChatMessage {
   const message = value as { role?: unknown; content?: unknown };
   return (
     (message.role === "user" || message.role === "assistant") &&
-    typeof message.content === "string"
+    isChatContent(message.content)
   );
+}
+
+function isChatContent(value: unknown): value is ChatContent {
+  if (typeof value === "string") return true;
+  if (!Array.isArray(value)) return false;
+  return value.every(part => {
+    if (!part || typeof part !== "object") return false;
+    const contentPart = part as { type?: unknown; text?: unknown; source?: unknown };
+    if (contentPart.type === "text") return typeof contentPart.text === "string";
+    if (contentPart.type !== "image" || !contentPart.source || typeof contentPart.source !== "object") {
+      return false;
+    }
+    const source = contentPart.source as { type?: unknown; media_type?: unknown; data?: unknown };
+    return source.type === "base64" &&
+      typeof source.media_type === "string" &&
+      source.media_type.startsWith("image/") &&
+      typeof source.data === "string" &&
+      source.data.length > 0;
+  });
+}
+
+function messageText(message: ChatMessage): string {
+  if (typeof message.content === "string") return message.content;
+  return message.content
+    .map(part => part.type === "text" ? part.text : "")
+    .join("\n");
+}
+
+function hasImage(messages: ChatMessage[]): boolean {
+  return messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === "image"));
+}
+
+function shouldEnableWebSearch(messages: ChatMessage[], payload: { enableWebSearch?: unknown }): boolean {
+  if (payload.enableWebSearch === true) return true;
+  if (payload.enableWebSearch === false) return false;
+
+  const recentText = messages
+    .slice(-4)
+    .map(messageText)
+    .join("\n")
+    .toLowerCase();
+
+  if (!recentText) return false;
+  return PRODUCT_SEARCH_WORDS.some(word => recentText.includes(word.toLowerCase()));
+}
+
+function toOpenAIMessage(message: ChatMessage): OpenAIInputMessage {
+  if (typeof message.content === "string") {
+    return {
+      role: message.role,
+      content: [{
+        type: message.role === "assistant" ? "output_text" : "input_text",
+        text: message.content
+      }]
+    };
+  }
+
+  return {
+    role: "user",
+    content: message.content.map(part => {
+      if (part.type === "image") {
+        return {
+          type: "input_image",
+          image_url: `data:${part.source.media_type};base64,${part.source.data}`
+        };
+      }
+      return { type: "input_text", text: part.text };
+    })
+  };
 }
 
 export async function POST(request: Request) {
@@ -199,7 +325,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "JSONを読めませんでした。" }, { status: 400 });
   }
 
-  const payload = body as { model?: unknown; messages?: unknown };
+  const payload = body as { model?: unknown; messages?: unknown; enableWebSearch?: unknown };
   const model = typeof payload.model === "string" && payload.model.trim()
     ? payload.model.trim()
     : DEFAULT_MODEL;
@@ -213,6 +339,28 @@ export async function POST(request: Request) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const useWebSearch = shouldEnableWebSearch(messages, payload);
+  const requestBody: {
+    model: string;
+    instructions: string;
+    input: OpenAIInputMessage[];
+    max_output_tokens: number;
+    tools?: Array<{ type: "web_search"; search_context_size: string }>;
+    tool_choice?: "required";
+  } = {
+    model,
+    instructions: buildInstructions(messages),
+    input: messages.map(toOpenAIMessage),
+    max_output_tokens: hasImage(messages) ? 3600 : 3000
+  };
+
+  if (useWebSearch) {
+    requestBody.tools = [{
+      type: "web_search",
+      search_context_size: process.env.WEB_SEARCH_CONTEXT_SIZE || "low"
+    }];
+    requestBody.tool_choice = "required";
+  }
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -221,12 +369,7 @@ export async function POST(request: Request) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model,
-        instructions: buildInstructions(messages),
-        input: messages,
-        max_output_tokens: 3000
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal
     });
 
