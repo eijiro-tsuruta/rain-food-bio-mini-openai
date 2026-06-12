@@ -167,7 +167,17 @@ Answer Composer:
 Rainらしい回答の呼吸:
 - 断定しすぎず、でも曖昧に逃げない
 - まず不安を下げ、次に構造を示す
-- 最後はその犬の観察ポイントへ戻す`;
+- 最後はその犬の観察ポイントへ戻す
+
+最終回答バリデーション:
+- 最終回答を出す前に、以下に違反していないか必ず自己検査する。
+- 「高タンパク」「タンパク質」と「腎臓負担」「腎臓に負担」「腎臓に悪い」を直接結びつける表現は禁止。
+- リンの実数値を取得していない場合、「リンが高め」「リンがやや高め」と推測しない。必ず「リン値は未確認」と書く。
+- リン値を取得した場合だけ、リン評価、Ca:P比評価、年齢適合性を述べる。
+- 「パピー用なので成犬用へ切り替え推奨」と一般論で結論しない。切り替え判断は体重、便、皮膚/被毛、水分摂取、活動量、リン、Ca:P、脂肪、エネルギー密度を見て述べる。
+- 「成長期の成犬」という矛盾表現は禁止。パピー用は「成長期の子犬向け」と表現する。
+- 数値がない場合は、数値評価ではなく「確認すべき項目」として扱う。
+- 回答内に上記の禁止表現が含まれる場合、最終回答を書き直す。`;
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -392,6 +402,20 @@ function compactReferenceLinks(text: string): string {
   return `${cleanedText}\n\n参考資料:\n${referenceLines}`;
 }
 
+function repairFoodAnswerText(text: string): string {
+  return text
+    .replace(
+      /(?:高タンパク|タンパク質)[^。\n]*(?:腎臓負担|腎臓に負担|腎臓に悪い)[^。\n]*。?/g,
+      "高タンパクだけでは腎臓負担とは評価しません。腎臓への影響は、リン、Ca:P比、既存の腎疾患、水分摂取、年齢、活動量を合わせて見ます。"
+    )
+    .replace(/リンがやや高め|リンが高め/g, "リン値は数値確認が必要")
+    .replace(/成長期の成犬/g, "成長期の子犬")
+    .replace(
+      /成犬用フードへの切り替え計画をおすすめします。?|成犬用フードへの切り替えをおすすめします。?/g,
+      "長期利用するかどうかは、体重、便、皮膚・被毛、水分摂取、活動量、リン、Ca:P比、脂肪量を見て判断します。"
+    );
+}
+
 function isChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as { role?: unknown; content?: unknown };
@@ -553,7 +577,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data }, { status: response.status });
     }
 
-    const text = compactReferenceLinks(extractResponseText(data));
+    const text = repairFoodAnswerText(compactReferenceLinks(extractResponseText(data)));
     return NextResponse.json({ text, raw: text ? undefined : data });
   } catch (error) {
     const message = error instanceof Error && error.name === "AbortError"
